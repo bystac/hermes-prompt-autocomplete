@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>prompt-autocomplete · demo</title>
+<style>
+  :root{
+    --bg:#0a0b0f; --panel:#12141b; --stroke:#242936; --text:#f2f4f8;
+    --muted:#8b93a7; --accent:#8b7bff; --accent2:#57d9a3; --mono:ui-monospace,SFMono-Regular,Menlo,monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1440px;height:900px;overflow:hidden}
+  body{
+    background:
+      radial-gradient(900px 420px at 12% -10%, rgba(139,123,255,.26), transparent 60%),
+      radial-gradient(700px 380px at 100% 110%, rgba(87,217,163,.14), transparent 62%),
+      var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .stage{width:1000px;display:flex;flex-direction:column;gap:26px}
+  .kicker{display:flex;align-items:center;gap:12px;font:600 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:#a99cff}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--accent2);box-shadow:0 0 14px var(--accent2)}
+  .composer{
+    background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015));
+    border:1px solid var(--stroke); border-radius:18px; padding:18px 20px 14px;
+    box-shadow:0 30px 70px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.05);
+  }
+  .bar{
+    display:flex;align-items:center;gap:14px;min-height:30px;
+    font:500 14px/1.25 var(--mono); margin-bottom:14px;
+    opacity:0; transform:translateY(3px); transition:opacity .16s ease, transform .16s ease;
+  }
+  .bar.on{opacity:1;transform:none}
+  .l{display:flex;align-items:center;gap:9px;min-width:0;flex:1;overflow:hidden}
+  .bolt{color:#a99cff;flex:none}
+  .prompt{white-space:pre;overflow:hidden;text-overflow:ellipsis}
+  .typed{color:#8f97ab}
+  .ghost{color:#b6a8ff;font-weight:650}
+  .legend{flex:none;color:#6f778a;font:500 12.5px/1 var(--mono);white-space:pre;display:flex;gap:8px;align-items:center}
+  .legend .sep{color:#3a4153}
+  .legend .k{border:1px solid transparent;border-radius:6px;padding:3px 6px;color:#ccd3e2;transition:all .12s ease}
+  .legend .k.dim{color:#6f778a}
+  .legend .k.hl{border-color:#8b7bff;background:rgba(139,123,255,.16);color:#e6e1ff}
+  .dir{flex:none;color:#57d9a3;font:600 12.5px/1 var(--mono);letter-spacing:.06em}
+  .input{display:flex;align-items:center;gap:2px;color:#e7ebf5;font-size:20px;min-height:44px;line-height:1.4}
+  .input .txt{white-space:pre-wrap}
+  .caret{width:2px;height:24px;background:#b6a8ff;animation:blink 1.05s steps(1) infinite;margin-left:2px}
+  @keyframes blink{50%{opacity:0}}
+  .row{display:flex;align-items:center;justify-content:space-between;color:#6f778a;font:500 12px/1 var(--mono);padding-top:14px;border-top:1px solid rgba(36,41,54,.55);margin-top:12px}
+  .badges{display:flex;gap:8px}
+  .badge{border:1px solid var(--stroke);border-radius:999px;padding:5px 10px;color:#c3cad9}
+  .caption{height:24px;color:#8b93a7;font:500 15px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;text-align:center}
+  .caption b{color:#e7ebf5;font-weight:620}
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="kicker"><span class="dot"></span>Hermes Desktop<span style="color:#4d5468">/</span>prompt-autocomplete</div>
+
+  <div class="composer">
+    <div class="bar" id="bar">
+      <div class="l">
+        <span class="bolt">⚡</span>
+        <span class="prompt"><span class="typed" id="typed"></span><span class="ghost" id="ghost"></span></span>
+      </div>
+      <span class="dir" id="dir"></span>
+      <div class="legend" id="legend"></div>
+    </div>
+    <div class="input" id="input"><span class="txt" id="txt"></span><span class="caret" id="caret"></span></div>
+    <div class="row">
+      <div class="badges"><span class="badge">two-tier: local trie + fast small model</span><span class="badge">no DOM rewrite</span></div>
+      <div>Hermes Agent · v0.22</div>
+    </div>
+  </div>
+
+  <div class="caption" id="caption"></div>
+</div>
+
+<script>
+const EN_TYPED = 'can you check the lo';
+const EN_FULL  = 'can you check the logs and see what failed';
+const HE_TYPED = 'תבדוק מה המצב';
+const HE_FULL  = 'תבדוק מה המצב של השרתים בפרודקשן';
+
+// timeline (ms)
+const T = {
+  type1:  [400, 2200],     // english typing
+  hold1:  [2200, 3600],    // bar visible, legend LTR
+  key1:   [3600, 4050],    // highlight accept key
+  commit1:[4050, 4250],    // commit english
+  clear1: [4250, 5000],
+  type2:  [5000, 6800],    // hebrew typing
+  hold2:  [6800, 8200],    // bar visible, legend RTL
+  key2:   [8200, 8650],
+  commit2:[8650, 8850],
+  end:    [8850, 10400]
+};
+const DURATION = 10400;
+
+const el = id => document.getElementById(id);
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const prog = (t, [a,b]) => clamp((t-a)/(b-a), 0, 1);
+
+function legend(dir, hlKey) {
+  const full = dir === 'rtl' ? '← full' : '→ full';
+  const word = dir === 'rtl' ? 'Ctrl+← word' : 'Ctrl+→ word';
+  const parts = [full, word, 'Tab'];
+  return parts.map(p => {
+    const hl = hlKey && p === hlKey ? ' hl' : (p === 'Tab' ? ' dim' : ' dim');
+    return `<span class="k${hl}">${p}</span>`;
+  }).join('<span class="sep">·</span>');
+}
+
+function seek(t) {
+  const bar = el('bar'), typedEl = el('typed'), ghostEl = el('ghost');
+  const txt = el('txt'), dirEl = el('dir'), legEl = el('legend'), cap = el('caption');
+
+  let typed = '', full = '', dir = 'ltr', showBar = false, hlKey = null, caption = '';
+
+  if (t < T.clear1[1]) {
+    // ── english beat
+    const p = prog(t, T.type1);
+    const n = Math.round(EN_TYPED.length * p);
+    typed = EN_TYPED.slice(0, n);
+    full = EN_FULL;
+    dir = 'ltr';
+    showBar = typed.length >= 3;
+    if (t >= T.key1[0] && t < T.commit1[0]) hlKey = 'Tab';
+    if (t >= T.commit1[0]) { typed = EN_FULL; showBar = false; }
+    if (t >= T.key1[0] && t < T.commit1[0]) caption = '<b>LTR</b> detected — Tab (or →) accepts the sentence';
+    else if (t >= T.commit1[0]) caption = 'Committed through <b>host.composer.setDraft</b> — editor DOM untouched';
+    else if (showBar) caption = '<b>LTR</b> — the bar names the direction and the keys that work';
+    else caption = 'Typing…';
+  } else if (t < T.commit2[0]) {
+    // ── hebrew beat
+    const p = prog(t, T.type2);
+    const n = Math.round(HE_TYPED.length * p);
+    typed = HE_TYPED.slice(0, n);
+    full = HE_FULL;
+    dir = 'rtl';
+    showBar = typed.length >= 3;
+    if (t >= T.key2[0]) hlKey = '← full';
+    if (t >= T.key2[0]) caption = '<b>RTL</b> detected — ← (or Ctrl+← for one word) accepts';
+    else if (showBar) caption = '<b>RTL</b> — same bar, mirrored keys, no toggle';
+    else caption = 'Typing…';
+  } else {
+    typed = HE_FULL;
+    full = HE_FULL;
+    dir = 'rtl';
+    showBar = false;
+    caption = 'Hebrew committed — direction follows the text, not a setting';
+  }
+
+  // bar contents
+  if (showBar && full.toLowerCase().startsWith(typed.toLowerCase()) && full.length > typed.length + 1) {
+    typedEl.textContent = typed;
+    ghostEl.textContent = full.slice(typed.length);
+    bar.classList.add('on');
+  } else {
+    bar.classList.remove('on');
+    if (showBar) { typedEl.textContent = typed; ghostEl.textContent = ''; }
+  }
+
+  // legend + direction word
+  dirEl.textContent = dir === 'rtl' ? 'RTL' : 'LTR';
+  legEl.innerHTML = legend(dir, hlKey);
+  legEl.style.direction = 'ltr';
+  legEl.dir = 'ltr';
+
+  // composer text
+  txt.textContent = typed;
+  txt.style.direction = dir;
+  txt.style.unicodeBidi = 'plaintext';
+  cap.innerHTML = caption;
+}
+
+// deterministic hook used by the frame capture loop
+window.seek = seek;
+window.DURATION = DURATION;
+seek(0);
+</script>
+</body>
+</html>

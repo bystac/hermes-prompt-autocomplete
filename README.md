@@ -3,9 +3,13 @@
 ![Prompt Autocomplete](docs/banner.png)
 
 Inline sentence completion for the **Hermes Desktop** composer. The bar above the input finishes the sentence
-you are already typing, and the key that accepts it is the arrow for your language: **→ English**,
-**← Hebrew/Arabic**, `Ctrl+Arrow` for a single word, `Tab` for the whole line. No toggle, no settings,
-and no keystrokes rewriting the editor.
+you are already typing and names the direction it detected — `LTR · → full · Ctrl+→ word · Tab`, or
+`RTL · ← full · Ctrl+← word · Tab` — so the keys follow the language instead of a setting. No toggle,
+no settings, and no keystrokes rewriting the editor.
+
+![Prompt Autocomplete demo](docs/demo.gif)
+
+<sub>Rendered from `docs/demo.html` — the same bar markup and key legend the plugin paints in `COMPOSER_AREAS.top`.</sub>
 
 - **Zero typing lag** — the `contentEditable` is never mutated on keystrokes. Suggestions render in
   `COMPOSER_AREAS.top` and an accepted completion is committed with `host.composer.setDraft()`.
