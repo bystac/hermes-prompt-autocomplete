@@ -127,12 +127,18 @@ function queryBuiltin(rawText) {
   const trimmed = line.trim()
   const lowLine = trimmed.toLowerCase()
 
+  let best = ''
   for (const p of [...BUILTIN_LTR, ...BUILTIN_RTL]) {
-    if (p.toLowerCase().startsWith(lowLine) && p.length > trimmed.length + 2) {
-      let suffix = p.slice(trimmed.length)
-      if (endsWithSpace && suffix.startsWith(' ')) suffix = suffix.slice(1)
-      return (!endsWithSpace && suffix.startsWith(' ') ? ' ' : '') + suffix.trim().split(' ').slice(0, 6).join(' ')
+    // Prefer the LONGEST matching sentence: a history phrase that stops early
+    // must never win over a complete one for the same prefix.
+    if (p.toLowerCase().startsWith(lowLine) && p.length > trimmed.length + 2 && p.length > best.length) {
+      best = p
     }
+  }
+  if (best) {
+    let suffix = best.slice(trimmed.length)
+    if (endsWithSpace && suffix.startsWith(' ')) suffix = suffix.slice(1)
+    return (!endsWithSpace && suffix.startsWith(' ') ? ' ' : '') + suffix.trim().split(' ').slice(0, 6).join(' ')
   }
   return ''
 }
@@ -198,16 +204,20 @@ function queryLocal(rawText) {
   const trimmed = line.trim();
   const lowLine = trimmed.toLowerCase();
 
+  let best = '';
   for (const p of phrases) {
     const lowP = p.toLowerCase();
-    if (lowP.startsWith(lowLine) && p.length > trimmed.length + 2) {
-      let suffix = p.slice(trimmed.length);
-      if (endsWithSpace && suffix.startsWith(' ')) {
-        suffix = suffix.slice(1);
-      }
-      const words = suffix.trim().split(' ').slice(0, 6).join(' ');
-      return (!endsWithSpace && suffix.startsWith(' ') ? ' ' : '') + words;
+    if (lowP.startsWith(lowLine) && p.length > trimmed.length + 2 && p.length > best.length) {
+      best = p;
     }
+  }
+  if (best) {
+    let suffix = best.slice(trimmed.length);
+    if (endsWithSpace && suffix.startsWith(' ')) {
+      suffix = suffix.slice(1);
+    }
+    const words = suffix.trim().split(' ').slice(0, 6).join(' ');
+    return (!endsWithSpace && suffix.startsWith(' ') ? ' ' : '') + words;
   }
 
   const words = trimmed.split(/\\s+/);
@@ -314,58 +324,31 @@ function AutocompleteBar() {
   }
 
   const isRtl = snap.direction === 'rtl'
-  const acceptKeyLabel = isRtl ? '← ArrowLeft' : '→ ArrowRight'
-  const wordKeyLabel = isRtl ? 'Ctrl+← Word' : 'Ctrl+→ Word'
 
   return jsx('div', {
     dir: isRtl ? 'rtl' : 'ltr',
-    className: cn(
-      'flex items-center justify-between gap-2 rounded-lg border border-(--ui-stroke-secondary)/70 bg-(--ui-bg-secondary)/60 px-2.5 py-1 text-xs select-none'
-    ),
+    className: cn('flex items-center gap-2 px-1 pb-0.5 text-xs select-none'),
     children: [
+      jsx(icons.Zap, { className: 'size-3 shrink-0 text-(--ui-accent) opacity-70' }),
       jsxs('div', {
-        className: 'flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden',
+        className: 'flex min-w-0 flex-1 items-baseline gap-0 overflow-hidden',
         children: [
-          jsx(icons.Zap, { className: 'size-3 shrink-0 text-(--ui-accent)' }),
           jsx('span', {
-            className: 'truncate font-mono text-[0.72rem] text-(--ui-text-tertiary)',
+            className: 'shrink-0 truncate whitespace-pre font-mono text-[0.72rem] text-(--ui-text-quaternary)',
             children: snap.activeText.slice(-42)
           }),
           jsx('span', {
-            className: 'truncate font-mono text-[0.74rem] font-semibold text-(--ui-accent)',
+            className: 'truncate whitespace-pre font-mono text-[0.74rem] text-(--ui-accent)',
             children: snap.suggestion
           })
         ]
       }),
-      jsxs('div', {
+      jsx('span', {
         dir: 'ltr',
-        className: 'flex items-center gap-1.5 shrink-0 font-mono text-[0.62rem] text-(--ui-text-tertiary)',
-        children: [
-          jsx('span', {
-            className: cn(
-              'rounded px-1 py-0.2',
-              snap.source === 'worker' || snap.source === 'local'
-                ? 'bg-emerald-500/15 text-emerald-400'
-                : 'bg-sky-500/15 text-sky-400'
-            ),
-            children:
-              snap.source === 'worker' || snap.source === 'local'
-                ? `⚡ Local ${snap.latencyLabel || '<1ms'}`
-                : `⚡ ${snap.modelName?.split('/').pop() || 'fast'} · ${snap.latencyLabel || ''}`
-          }),
-          jsx('span', {
-            className: 'rounded border border-(--ui-stroke-secondary) bg-(--ui-bg-primary)/70 px-1.5 py-0.2 text-foreground',
-            children: acceptKeyLabel
-          }),
-          jsx('span', {
-            className: 'hidden sm:inline rounded border border-(--ui-stroke-secondary)/60 px-1 py-0.2 text-(--ui-text-quaternary)',
-            children: wordKeyLabel
-          }),
-          jsx('span', {
-            className: 'hidden md:inline text-(--ui-text-quaternary)',
-            children: 'Tab'
-          })
-        ]
+        className: 'shrink-0 font-mono text-[0.62rem] whitespace-nowrap text-(--ui-text-quaternary)',
+        children: isRtl
+          ? `RTL · ← full · Ctrl+← word · Tab${snap.source === 'model' && snap.latencyLabel ? ` · ${snap.latencyLabel}` : ''}`
+          : `LTR · → full · Ctrl+→ word · Tab${snap.source === 'model' && snap.latencyLabel ? ` · ${snap.latencyLabel}` : ''}`
       })
     ]
   })
@@ -406,7 +389,7 @@ function AutocompleteStatusChip({ ctx }) {
       ),
       children: [
         jsx(StatusDot, { tone: enabled ? 'success' : 'neutral' }),
-        jsx('span', { children: isRtl ? 'AC←' : 'AC→' }),
+        jsx('span', { children: isRtl ? 'AC RTL' : 'AC LTR' }),
         snap.latencyLabel &&
           enabled &&
           jsx('span', {
