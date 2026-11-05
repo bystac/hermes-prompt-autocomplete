@@ -53,6 +53,12 @@ function inferDirection(text) {
   return 'ltr'
 }
 
+function isComposerEditor(el) {
+  if (!el || el.isContentEditable !== true) return false
+  if (el.getAttribute?.('role') === 'textbox') return true
+  return el.dataset?.slot === 'composer-rich-input'
+}
+
 function isCaretAtEnd(editor) {
   if (!editor) return false
   const sel = window.getSelection()
@@ -70,35 +76,68 @@ function isCaretAtEnd(editor) {
   }
 }
 
+// ── Tier-1 builtin corpus (shared by the main-thread matcher and the worker) ─
+
+const BUILTIN_LTR = [
+  'can you check the logs and see what failed',
+  'can you check the status of all production services',
+  'check laptop ram usage and top processes',
+  'deploy the latest changes to production',
+  'prepare git branch and push to origin',
+  'run the test suite and fix any failing tests',
+  'verify the changes and report back',
+  'show me what changed in the last commit',
+  'fix the merge conflicts and push',
+  'review the code changes before committing',
+  'optimize performance and reduce latency'
+]
+
+const BUILTIN_RTL = [
+  'תבדוק בבקשה את הלוגים ותראה אם יש שגיאות',
+  'תבדוק מה המצב של השרתים בפרודקשן',
+  'תריץ את הטסטים ותתקן את מה שנכשל',
+  'בוא נבדוק למה השרת איטי',
+  'תכין ענף גיט ותדחוף ל-origin',
+  'תראה לי מה השתנה בקומיט האחרון',
+  'תסדר את הקונפליקטים במיזוג ותעדכן',
+  'תבדוק את השימוש בזיכרון של הלפטופ',
+  'תעדכן את הפלאגין ותוודא שהכל עובד חלק',
+  'תעשה בדיקה מלאה ותחזור אליי עם תשובה'
+]
+
+/**
+ * Main-thread prefix matcher over the builtin corpus. The WebWorker is a
+ * performance layer, not a requirement: packaged builds can refuse `blob:`
+ * workers, and the /corpus backend can be absent. This guarantees the bar
+ * always has something to show for a known prefix.
+ */
+function queryBuiltin(rawText) {
+  if (!rawText || rawText.length < 3) return ''
+  const lines = rawText.split(/\r?\n/)
+  const line = lines[lines.length - 1]
+  if (!line || line.trim().length < 3) return ''
+  if (line.trim().startsWith('/') || line.trim().startsWith('@')) return ''
+
+  const endsWithSpace = /\s$/.test(line)
+  const trimmed = line.trim()
+  const lowLine = trimmed.toLowerCase()
+
+  for (const p of [...BUILTIN_LTR, ...BUILTIN_RTL]) {
+    if (p.toLowerCase().startsWith(lowLine) && p.length > trimmed.length + 2) {
+      let suffix = p.slice(trimmed.length)
+      if (endsWithSpace && suffix.startsWith(' ')) suffix = suffix.slice(1)
+      return (!endsWithSpace && suffix.startsWith(' ') ? ' ' : '') + suffix.trim().split(' ').slice(0, 6).join(' ')
+    }
+  }
+  return ''
+}
+
 // ── Off-Main-Thread WebWorker (0ms Local Prefix & N-gram Engine) ────────────
 
 const WORKER_SOURCE = `
-const BUILTIN_LTR = [
-  "can you check the logs and see what failed",
-  "can you check the status of all production services",
-  "check laptop ram usage and top processes",
-  "deploy the latest changes to production",
-  "prepare git branch and push to origin",
-  "run the test suite and fix any failing tests",
-  "verify the changes and report back",
-  "show me what changed in the last commit",
-  "fix the merge conflicts and push",
-  "review the code changes before committing",
-  "optimize performance and reduce latency"
-];
+const BUILTIN_LTR = ${JSON.stringify(BUILTIN_LTR)};
+const BUILTIN_RTL = ${JSON.stringify(BUILTIN_RTL)};
 
-const BUILTIN_RTL = [
-  "תבדוק בבקשה את הלוגים ותראה אם יש שגיאות",
-  "תבדוק מה המצב של השרתים בפרודקשן",
-  "תריץ את הטסטים ותתקן את מה שנכשל",
-  "בוא נבדוק למה השרת איטי",
-  "תכין ענף גיט ותדחוף ל-origin",
-  "תראה לי מה השתנה בקומיט האחרון",
-  "תסדר את הקונפליקטים במיזוג ותעדכן",
-  "תבדוק את השימוש בזיכרון של הלפטופ",
-  "תעדכן את הפלאגין ותוודא שהכל עובד חלק",
-  "תעשה בדיקה מלאה ותחזור אליי עם תשובה"
-];
 
 let phrases = [...BUILTIN_LTR, ...BUILTIN_RTL];
 let nextWordMap = new Map();
@@ -300,13 +339,13 @@ function AutocompleteBar() {
           jsx('span', {
             className: cn(
               'rounded px-1 py-0.2',
-              snap.source === 'worker'
+              snap.source === 'worker' || snap.source === 'local'
                 ? 'bg-emerald-500/15 text-emerald-400'
                 : 'bg-sky-500/15 text-sky-400'
             ),
             children:
-              snap.source === 'worker'
-                ? `⚡ Worker ${snap.latencyLabel || '<1ms'}`
+              snap.source === 'worker' || snap.source === 'local'
+                ? `⚡ Local ${snap.latencyLabel || '<1ms'}`
                 : `⚡ ${snap.modelName?.split('/').pop() || 'fast'} · ${snap.latencyLabel || ''}`
           }),
           jsx('span', {
@@ -470,7 +509,7 @@ export default {
     const onDocumentInput = ev => {
       if (!currentState.enabled) return
       const target = ev.target
-      if (!target || target.getAttribute?.('role') !== 'textbox' || !target.isContentEditable) {
+      if (!isComposerEditor(target)) {
         return
       }
       activeEditor = target
@@ -512,6 +551,19 @@ export default {
         suggestion: ''
       })
 
+      // Tier 1 always runs on the main thread first (no worker/backend needed),
+      // so the bar renders for any known prefix. The worker refines it with the
+      // user's own history a beat later when it is available.
+      const localHit = queryBuiltin(text)
+      if (localHit) {
+        setEngineState({
+          suggestion: localHit,
+          source: 'local',
+          latencyLabel: '<1ms',
+          modelName: 'Local phrases'
+        })
+      }
+
       if (worker) {
         worker.postMessage({ type: 'query', seq: mySeq, text })
       }
@@ -552,7 +604,7 @@ export default {
       if (!currentState.suggestion) return
 
       const target = ev.target
-      if (!target || target.getAttribute?.('role') !== 'textbox' || !target.isContentEditable) {
+      if (!isComposerEditor(target)) {
         return
       }
 

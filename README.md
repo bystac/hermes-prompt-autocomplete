@@ -1,27 +1,47 @@
 # Hermes Prompt Autocomplete (`prompt-autocomplete`)
 
-Zero-DOM-lag inline sentence autocomplete for the **Hermes Desktop** prompt composer with automatic **LTR (`→`)** and **RTL (`←`)** direction detection.
+![Hermes Prompt Autocomplete](docs/banner.png)
 
-## Features
+Inline sentence autocomplete for the **Hermes Desktop** prompt composer. The suggestion bar sits above the
+input, and the arrow key that accepts it is the one that matches the language you are already typing:
+**English →**, **Hebrew/Arabic ←**. No toggle, no settings, no keystrokes added to the editor.
 
-- **Implied LTR / RTL Direction Detection (No Manual Toggle)**:
-  - Scans backwards from your caret for the last strong directional Unicode character (`[\u0590-\u08FF]` Hebrew/Arabic $\rightarrow$ **RTL** vs `[A-Za-z]` Latin $\rightarrow$ **LTR**).
-  - **English / LTR**: Press **`→` (`ArrowRight`)** to accept the full sentence continuation, **`Ctrl + →`** to accept one word, or **`Tab`**.
-  - **Hebrew / Arabic / RTL**: Press **`←` (`ArrowLeft`)** to accept the full sentence continuation, **`Ctrl + ←`** to accept one word, or **`Tab`**.
-- **Zero Typing Lag**:
-  - Never mutates the `contentEditable` DOM on keystrokes. Renders suggestions in `COMPOSER_AREAS.top` and commits accepted completions via `host.composer.setDraft()`.
-- **Two-Tier Speed Architecture**:
-  1. **Tier 1 (`< 1 ms` Local WebWorker)**: Off-main-thread Prefix & N-gram Trie pre-seeded from your local `state.db` prompt history plus built-in English & Hebrew developer phrases.
-  2. **Tier 2 (`~500 ms` Fast Small-Model Completion)**: Routes novel prefixes through `agent.plugin_llm.PluginLlm` (using the registered `prompt_autocomplete` auxiliary task slot, or racing `qwen/qwen-2.5-7b-instruct`, `meta-llama/llama-3.1-8b-instruct`, `meta-llama/llama-4-scout`, and `google/gemini-3.5-flash-lite` when model override trust is enabled).
+- **Zero typing lag** — the `contentEditable` is never mutated on keystrokes. Suggestions render in
+  `COMPOSER_AREAS.top` and an accepted completion is committed with `host.composer.setDraft()`.
+- **Implied direction** — the last strong directional character before the caret decides
+  (`[\u0590-\u08FF]` → RTL, `[A-Za-z]` → LTR). Nothing to configure per language.
+- **Works without the backend or the worker** — the builtin phrase trie runs on the main thread, so the bar
+  still appears in packaged builds that refuse `blob:` workers and before any Python backend is enabled.
 
-## Installation
+## Install
 
 ```bash
 hermes plugins install prompt-autocomplete
 hermes plugins enable prompt-autocomplete
 ```
 
-Optional — to enable the 4-model parallel fast race in `config.yaml`:
+Restart the desktop app if the bar does not appear; the plugin inventory is in **Settings → Plugins**.
+
+## Keys
+
+| Direction | Accept full continuation | Accept one word | Accept full |
+| --- | --- | --- | --- |
+| LTR (English) | `→` `ArrowRight` | `Ctrl + →` | `Tab` |
+| RTL (Hebrew / Arabic) | `←` `ArrowLeft` | `Ctrl + ←` | `Tab` |
+| Either | `Escape` dismisses the current suggestion | | |
+
+## How it works
+
+| Tier | Where | Latency | Source |
+| --- | --- | --- | --- |
+| 1a | Main thread | `< 1 ms` | Builtin English + Hebrew developer phrases, always on |
+| 1b | WebWorker | `< 1 ms` | Prefix / N-gram trie seeded from up to 400 recent prompts in `state.db` (`GET /corpus`) |
+| 2 | Plugin backend | `~200–600 ms` | Small-model continuation race via `agent.plugin_llm.PluginLlm` (`POST /complete`, `max_tokens=10`) |
+
+Tier 1a/1b answer first and render the bar immediately. Tier 2 is only asked when the local tiers stay
+silent after a `90 ms` typing pause, so ordinary typing never touches the network.
+
+Optional — let Tier 2 race four fast models instead of using the registered auxiliary task slot:
 
 ```yaml
 plugins:
@@ -32,10 +52,37 @@ plugins:
         allowed_models: ["*"]
 ```
 
+Without that block every Tier 2 request goes through the plugin's own `prompt_autocomplete` auxiliary task
+slot, which you can point at any provider/model in Hermes.
+
+## Requirements
+
+- Hermes Agent `>= 0.21.0` with the desktop app.
+- No tools, hooks, middleware, or environment variables; nothing is contributed outside the plugin SDK
+  surface (`COMPOSER_AREAS.top`, `STATUSBAR_AREAS.right`, `host.composer.setDraft`, `ctx.rest`, `ctx.storage`).
+
 ## Disclosure (Catalog Rule 13)
 
-- **Reads**: Reads up to 400 recent user prompt phrases from the active profile's `state.db` via `hermes_state.SessionDB` (`search_sessions`, `get_messages`) to seed the local in-memory WebWorker Trie. Never reads `.env` or credentials.
-- **Network / LLM**: When the local WebWorker Trie has no match after a `90 ms` typing pause, sends the last 180 characters of the current draft line to the user's configured LLM provider via Hermes's host-owned `agent.plugin_llm.PluginLlm` facade (`max_tokens=10`).
+- **Local reads** — when the backend is enabled, `GET /corpus` reads up to 400 recent user prompt phrases from
+  the active profile's `state.db` through the public `hermes_state.SessionDB` API (`search_sessions`,
+  `get_messages`) to seed the in-memory trie. Message text is used only for matching; it is never sent
+  anywhere, and `.env` / credentials are never read.
+- **Network / LLM** — only after the local tiers find no match and typing pauses: the last 180 characters of
+  the current draft line go to the user's own configured LLM provider through Hermes's host-owned
+  `agent.plugin_llm.PluginLlm` facade, with `max_tokens=10`, `temperature=0.1`, a `2.2 s` timeout and a
+  bounded in-process result cache. No third-party endpoint is contacted directly.
+- **Local writes** — one preference, `enabled`, in plugin-scoped `ctx.storage`.
+- **Telemetry** — none. No self-updater, no analytics, no background polling.
+
+## Development
+
+```bash
+hermes plugins validate . --install-deps   # manifest, capability probe, desktop surface, security scan
+python3 -m http.server 8791               # serve docs/banner.png preview if you edit it
+```
+
+`desktop/plugin.js` is plain ESM with no build step: only `@hermes/plugin-sdk`, `react`, and
+`react/jsx-runtime` are importable, and JSX syntax is not compiled — UI is written with `jsx()` calls.
 
 ## License
 
