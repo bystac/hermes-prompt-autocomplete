@@ -27,6 +27,17 @@ hermes plugins enable prompt-autocomplete
 
 Restart the desktop app if the bar does not appear; the plugin inventory is in **Settings → Plugins**.
 
+## Why it's different
+
+- **Sub-1 ms, off the main thread.** Phrase matching runs in a `WebWorker` trie, with a main-thread
+  fallback so the bar still appears when `blob:` workers are blocked. No network round-trip to show a
+  suggestion, and no keystroke ever waits on it.
+- **Trained on your own prompts.** On load the trie is seeded with up to 400 of your own recent prompt
+  phrases from the active profile's `state.db`, on device. Completions sound like the way you already
+  write, and that corpus never leaves the machine.
+- **Direction is implied, not configured.** The legend names what it detected — `LTR` or `RTL` — and lists
+  the keys for that direction, so a Hebrew line never asks you to flip a toggle.
+
 ## Keys
 
 | Direction | Accept full continuation | Accept one word | Accept full |

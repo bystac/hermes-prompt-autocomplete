@@ -17,9 +17,9 @@
       var(--bg);
     color:var(--text);
     font-family:-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",sans-serif;
-    display:flex; align-items:center; justify-content:center;
+    display:flex;align-items:center;justify-content:center;
   }
-  .stage{width:1000px;display:flex;flex-direction:column;gap:26px}
+  .stage{width:1000px;display:flex;flex-direction:column;gap:22px}
   .kicker{display:flex;align-items:center;gap:12px;font:600 12px/1 var(--mono);letter-spacing:.16em;text-transform:uppercase;color:#a99cff}
   .dot{width:8px;height:8px;border-radius:50%;background:var(--accent2);box-shadow:0 0 14px var(--accent2)}
   .composer{
@@ -51,7 +51,23 @@
   .row{display:flex;align-items:center;justify-content:space-between;color:#6f778a;font:500 12px/1 var(--mono);padding-top:14px;border-top:1px solid rgba(36,41,54,.55);margin-top:12px}
   .badges{display:flex;gap:8px}
   .badge{border:1px solid var(--stroke);border-radius:999px;padding:5px 10px;color:#c3cad9}
-  .caption{height:24px;color:#8b93a7;font:500 15px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;text-align:center}
+  /* unique selling points */
+  .usp{display:flex;gap:14px}
+  .card{
+    flex:1;display:flex;align-items:center;gap:12px;
+    border:1px solid var(--stroke);border-radius:14px;padding:13px 16px;
+    background:rgba(18,20,27,.55);
+    opacity:.32;transition:opacity .25s ease,border-color .25s ease,box-shadow .25s ease,background .25s ease;
+  }
+  .card.on{
+    opacity:1;border-color:rgba(139,123,255,.55);
+    background:linear-gradient(180deg,rgba(139,123,255,.14),rgba(139,123,255,.04));
+    box-shadow:0 0 0 1px rgba(139,123,255,.12), 0 12px 40px rgba(139,123,255,.18);
+  }
+  .card .big{font:680 24px/1 -apple-system,BlinkMacSystemFont,sans-serif;letter-spacing:-.02em;color:#eae7ff;white-space:nowrap}
+  .card .lbl{font:500 13px/1.35 -apple-system,BlinkMacSystemFont,sans-serif;color:#9aa3b8}
+  .card .lbl b{color:#cfd5e4;font-weight:620}
+  .caption{height:22px;color:#8b93a7;font:500 15px/1.4 -apple-system,BlinkMacSystemFont,sans-serif;text-align:center}
   .caption b{color:#e7ebf5;font-weight:620}
 </style>
 </head>
@@ -75,6 +91,11 @@
     </div>
   </div>
 
+  <div class="usp">
+    <div class="card" id="u1"><span class="big">&lt;1 ms</span><span class="lbl">local phrase match, <b>off the main thread</b></span></div>
+    <div class="card" id="u2"><span class="big">your prompts</span><span class="lbl">trained on <b>your own history</b>, on device</span></div>
+  </div>
+
   <div class="caption" id="caption"></div>
 </div>
 
@@ -86,74 +107,81 @@ const HE_FULL  = 'תבדוק מה המצב של השרתים בפרודקשן';
 
 // timeline (ms)
 const T = {
-  type1:  [400, 2200],     // english typing
-  hold1:  [2200, 3600],    // bar visible, legend LTR
-  key1:   [3600, 4050],    // highlight accept key
-  commit1:[4050, 4250],    // commit english
-  clear1: [4250, 5000],
-  type2:  [5000, 6800],    // hebrew typing
-  hold2:  [6800, 8200],    // bar visible, legend RTL
-  key2:   [8200, 8650],
-  commit2:[8650, 8850],
-  end:    [8850, 10400]
+  type1:  [400, 2200],
+  hold1:  [2200, 3600],
+  key1:   [3600, 4050],
+  commit1:[4050, 4250],
+  usp:    [4250, 5600],
+  type2:  [5600, 7400],
+  hold2:  [7400, 8800],
+  key2:   [8800, 9250],
+  commit2:[9250, 9450],
+  end:    [9450, 10800]
 };
-const DURATION = 10400;
+const DURATION = 10800;
 
 const el = id => document.getElementById(id);
 const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 const prog = (t, [a,b]) => clamp((t-a)/(b-a), 0, 1);
 
 function legend(dir, hlKey) {
-  const full = dir === 'rtl' ? '← full' : '→ full';
-  const word = dir === 'rtl' ? 'Ctrl+← word' : 'Ctrl+→ word';
-  const parts = [full, word, 'Tab'];
-  return parts.map(p => {
-    const hl = hlKey && p === hlKey ? ' hl' : (p === 'Tab' ? ' dim' : ' dim');
-    return `<span class="k${hl}">${p}</span>`;
-  }).join('<span class="sep">·</span>');
+  const parts = dir === 'rtl' ? ['← full', 'Ctrl+← word', 'Tab'] : ['→ full', 'Ctrl+→ word', 'Tab'];
+  return parts.map(p => `<span class="k${hlKey && p === hlKey ? ' hl' : ' dim'}">${p}</span>`)
+    .join('<span class="sep">·</span>');
 }
 
 function seek(t) {
   const bar = el('bar'), typedEl = el('typed'), ghostEl = el('ghost');
   const txt = el('txt'), dirEl = el('dir'), legEl = el('legend'), cap = el('caption');
+  const u1 = el('u1'), u2 = el('u2');
 
   let typed = '', full = '', dir = 'ltr', showBar = false, hlKey = null, caption = '';
+  let usp1 = false, usp2 = false;
 
-  if (t < T.clear1[1]) {
-    // ── english beat
-    const p = prog(t, T.type1);
-    const n = Math.round(EN_TYPED.length * p);
+  if (t < T.usp[0]) {
+    const n = Math.round(EN_TYPED.length * prog(t, T.type1));
     typed = EN_TYPED.slice(0, n);
     full = EN_FULL;
-    dir = 'ltr';
     showBar = typed.length >= 3;
-    if (t >= T.key1[0] && t < T.commit1[0]) hlKey = 'Tab';
-    if (t >= T.commit1[0]) { typed = EN_FULL; showBar = false; }
-    if (t >= T.key1[0] && t < T.commit1[0]) caption = '<b>LTR</b> detected — Tab (or →) accepts the sentence';
-    else if (t >= T.commit1[0]) caption = 'Committed through <b>host.composer.setDraft</b> — editor DOM untouched';
-    else if (showBar) caption = '<b>LTR</b> — the bar names the direction and the keys that work';
-    else caption = 'Typing…';
+    if (t >= T.key1[0] && t < T.commit1[0]) {
+      hlKey = 'Tab';
+      caption = '<b>LTR</b> detected — Tab or → accepts the sentence';
+    } else if (t >= T.commit1[0]) {
+      typed = EN_FULL;
+      showBar = false;
+      caption = 'Committed through <b>host.composer.setDraft</b> — editor DOM untouched';
+    } else if (showBar) {
+      caption = '<b>LTR</b> — the bar names the direction and the keys that work';
+      usp1 = true;
+    } else {
+      caption = 'Typing…';
+    }
+  } else if (t < T.usp[1]) {
+    typed = EN_FULL;
+    caption = 'Matched <b>locally in under a millisecond</b> — nothing left the machine';
+    usp1 = true; usp2 = true;
   } else if (t < T.commit2[0]) {
-    // ── hebrew beat
-    const p = prog(t, T.type2);
-    const n = Math.round(HE_TYPED.length * p);
+    const n = Math.round(HE_TYPED.length * prog(t, T.type2));
     typed = HE_TYPED.slice(0, n);
     full = HE_FULL;
     dir = 'rtl';
     showBar = typed.length >= 3;
-    if (t >= T.key2[0]) hlKey = '← full';
-    if (t >= T.key2[0]) caption = '<b>RTL</b> detected — ← (or Ctrl+← for one word) accepts';
-    else if (showBar) caption = '<b>RTL</b> — same bar, mirrored keys, no toggle';
-    else caption = 'Typing…';
+    if (t >= T.key2[0]) {
+      hlKey = '← full';
+      caption = '<b>RTL</b> detected — ← or Ctrl+← for one word accepts';
+    } else if (showBar) {
+      caption = '<b>RTL</b> — same bar, mirrored keys, no toggle';
+    } else {
+      caption = 'Typing…';
+    }
+    usp1 = true; usp2 = true;
   } else {
     typed = HE_FULL;
-    full = HE_FULL;
     dir = 'rtl';
-    showBar = false;
     caption = 'Hebrew committed — direction follows the text, not a setting';
+    usp1 = true; usp2 = true;
   }
 
-  // bar contents
   if (showBar && full.toLowerCase().startsWith(typed.toLowerCase()) && full.length > typed.length + 1) {
     typedEl.textContent = typed;
     ghostEl.textContent = full.slice(typed.length);
@@ -163,17 +191,17 @@ function seek(t) {
     if (showBar) { typedEl.textContent = typed; ghostEl.textContent = ''; }
   }
 
-  // legend + direction word
   dirEl.textContent = dir === 'rtl' ? 'RTL' : 'LTR';
   legEl.innerHTML = legend(dir, hlKey);
-  legEl.style.direction = 'ltr';
   legEl.dir = 'ltr';
 
-  // composer text
   txt.textContent = typed;
   txt.style.direction = dir;
   txt.style.unicodeBidi = 'plaintext';
   cap.innerHTML = caption;
+
+  u1.classList.toggle('on', usp1);
+  u2.classList.toggle('on', usp2);
 }
 
 // deterministic hook used by the frame capture loop
