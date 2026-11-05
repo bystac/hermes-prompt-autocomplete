@@ -62,7 +62,12 @@ function isComposerEditor(el) {
 function isCaretAtEnd(editor) {
   if (!editor) return false
   const sel = window.getSelection()
-  if (!sel || !sel.rangeCount || !sel.isCollapsed) return false
+  if (!sel || !sel.rangeCount || !sel.isCollapsed) {
+    // No live selection in this document (some IME/focus models never expose
+    // one). Acceptance always appends to the end of the draft, so treating a
+    // focused editor as caret-at-end is consistent with what the bar does.
+    return document.activeElement === editor
+  }
   const range = sel.getRangeAt(0)
   if (!editor.contains(range.commonAncestorContainer)) return false
 
