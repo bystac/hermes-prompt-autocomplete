@@ -422,8 +422,8 @@ function AutocompleteStatusChip({ ctx }) {
 
 export default {
   id: ID,
-  name: 'Fast Prompt Autocomplete (Implied LTR/RTL)',
-  description: 'Zero-DOM-lag sentence completion: <1ms WebWorker history Trie + ~500ms small-model race with implied LTR (→) / RTL (←) arrow acceptance.',
+  name: 'Prompt Autocomplete',
+  description: 'Inline sentence autocomplete in the composer — accept with → in English, ← in Hebrew/Arabic, no toggle.',
   defaultEnabled: true,
   register(ctx) {
     try {

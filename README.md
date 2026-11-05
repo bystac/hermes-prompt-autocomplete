@@ -1,10 +1,11 @@
-# Hermes Prompt Autocomplete (`prompt-autocomplete`)
+# Prompt Autocomplete (`prompt-autocomplete`)
 
-![Hermes Prompt Autocomplete](docs/banner.png)
+![Prompt Autocomplete](docs/banner.png)
 
-Inline sentence autocomplete for the **Hermes Desktop** prompt composer. The suggestion bar sits above the
-input, and the arrow key that accepts it is the one that matches the language you are already typing:
-**English →**, **Hebrew/Arabic ←**. No toggle, no settings, no keystrokes added to the editor.
+Inline sentence completion for the **Hermes Desktop** composer. The bar above the input finishes the sentence
+you are already typing, and the key that accepts it is the arrow for your language: **→ English**,
+**← Hebrew/Arabic**, `Ctrl+Arrow` for a single word, `Tab` for the whole line. No toggle, no settings,
+and no keystrokes rewriting the editor.
 
 - **Zero typing lag** — the `contentEditable` is never mutated on keystrokes. Suggestions render in
   `COMPOSER_AREAS.top` and an accepted completion is committed with `host.composer.setDraft()`.
